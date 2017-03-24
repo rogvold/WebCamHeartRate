@@ -105,6 +105,8 @@ var Core = {
          minDevID = 2;
     }
 
+    console.log('_____    ---- >>>> deviations = ', deviations);
+
      return   minDevID;
     },
 

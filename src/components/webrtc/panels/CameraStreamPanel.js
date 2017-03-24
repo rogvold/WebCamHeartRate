@@ -22,7 +22,8 @@ class CameraStreamPanel extends React.Component {
         // width: 160,
         // height: 120,
         width: 200,
-        height: 150,
+        height: 200,
+
 
         dt: 33,
 
@@ -30,10 +31,14 @@ class CameraStreamPanel extends React.Component {
 
         scanSkip: 100,
 
-        chartUpdateSkip: 30,
+        // chartUpdateSkip: 30,
+        chartUpdateSkip: 9,
 
         // plotPointsNumber: 1000
-        plotPointsNumber: 200
+        plotPointsNumber: 200,
+
+        changeBazisInterval: 150,
+
         // plotPointsNumber: 120
 
     }
@@ -70,53 +75,8 @@ class CameraStreamPanel extends React.Component {
         this.h = 0;
         this.avrRedArr = [];
         this.anglesArr = [];
+        this.timesArray = [];
 
-        this.tracker = new tracking.ObjectTracker(['face']);
-
-        // this.tracker.setInitialScale(4);
-        this.tracker.setInitialScale(1);
-        // this.tracker.setStepSize(2);
-        this.tracker.setStepSize(1);
-        this.tracker.setEdgesDensity(0.1);
-
-
-        this.tracker.on('track', (event) => {
-            let ddt = +new Date() - (this.prevT == undefined ? 0 : this.prevT);
-            this.prevT = +new Date();
-            console.log('------------------');
-            console.log('-----   ' + ddt + '-------');
-            console.log('------------------');
-
-            console.log('onTrack occured');
-            console.log('event = ', event);
-            console.log('event.data =  ', event.data);
-            this.rectContext.clearRect(0, 0, this.canvas.width, this.canvas.height);
-            let max = -1;
-            let resRect = undefined;
-            event.data.forEach((rect) => {
-                console.log('event data rect = ', rect);
-                this.rectContext.strokeStyle = '#a64ceb';
-                this.rectContext.strokeRect(rect.x, rect.y, rect.width, rect.height);
-                this.rectContext.font = '11px Helvetica';
-                this.rectContext.fillStyle = "#fff";
-                this.rectContext.fillText('x: ' + rect.x + 'px', rect.x + rect.width + 5, rect.y + 11);
-                this.rectContext.fillText('y: ' + rect.y + 'px', rect.x + rect.width + 5, rect.y + 22);
-
-                if (rect.width > max){
-                    max = rect.width;
-                    resRect = rect;
-                }
-
-            });
-
-            if (resRect != undefined){
-                this.x = resRect.x;
-                this.y = resRect.y;
-                this.w = resRect.width;
-                this.h = resRect.height;
-            }
-
-        });
 
         navigator.getUserMedia({video:true}, (stream) => {
             // this.stream = stream;
@@ -139,28 +99,23 @@ class CameraStreamPanel extends React.Component {
 
     onVideoPlay = (a, b, c, d, e) => {
         let t0 = + new Date();
-        let {scanSkip, width, height, chartUpdateSkip} = this.props;
+        let {scanSkip, width, height, chartUpdateSkip, changeBazisInterval} = this.props;
         this.context.drawImage(this.video, 0, 0, width, height);
-
-        this.rectContext.clearRect(0, 0, width, height);
-        this.faceContext.drawImage(this.canvas,
-            +this.x + (0.2 * this.w), this.y, +this.w - (0.4 * this.w), this.h,
-            0, 0, width, height);
-
+        // this.context.drawImage(this.video, 0.2 * width, 0.2*height, width * 0.6, height * 0.6, 0, 0, width, height
+        //                             );
 
         let avrRed = this.getAvrRed();
         console.log('avrRed = ', avrRed);
         this.avrRedArr.push(avrRed);
+        this.timesArray.push(+new Date());
 
         let magicMatrix = this.getJuiceArr();
         let angles = [];
 
         let jT0 = + new Date();
         if (avrRed > 0){
-            if (Core.needToRefreshBazis()){
-                // console.log('--->>>>>    setting new basis!!!! ', magicMatrix);
+            if (Core.needToRefreshBazis() || (this.frameNumber % changeBazisInterval == 0)){
                 Core.saveBazis(magicMatrix);
-                console.log('basis = ', savedBazis);
             }else {
                 angles = Core.calculateAngles(magicMatrix);
                 console.log('angles = ', angles);
@@ -181,7 +136,6 @@ class CameraStreamPanel extends React.Component {
         if (this.frameNumber % scanSkip == 0){
             console.log('trying to track');
             this.prevT = +new Date();
-            tracking.track(this.canvas, this.tracker, { camera: true });
         }
 
         let t1 = + new Date();
@@ -232,28 +186,34 @@ class CameraStreamPanel extends React.Component {
 
     getPlotData = () => {
         let arr = this.avrRedArr == undefined ? [] : this.avrRedArr;
+        let timeArr = this.timesArray == undefined ? [] : this.timesArray;
         let {plotPointsNumber} = this.props;
         let res = arr.slice(-plotPointsNumber);
+        timeArr = timeArr.slice(-plotPointsNumber);
         let min = 100000;
         res = res.filter(r => (r > 0))
-        res =  res.map((c) => {
+        res =  res.map((c, k) => {
             if (c < min){
                 min = c;
             }
             return {
-                red: c
+                red: c,
+                time: timeArr[k],
+                timeS: moment(timeArr[k]).format('s')
             }
         })
         console.log('min = ', min);
         // res = res.map((r) => {return {red: (+r.red - +min) }})
-        res = res.map((r) => {return {red: (+r.red - 120) }})
+        res = res.map((r) => {return {red: (+r.red - 200), timeS: r.timeS }})
         return res;
     }
 
     getAnglesPlotData = () => {
         let arr = this.anglesArr == undefined ? [] : this.anglesArr;
+        let timeArr = this.timesArray == undefined ? [] : this.timesArray;
         let {plotPointsNumber} = this.props;
         let res = arr.slice(-plotPointsNumber);
+        timeArr = timeArr.slice(-plotPointsNumber);
         let {dt} = this.props;
         let now = +new Date();
         return res.map((r, k) => {
@@ -262,7 +222,9 @@ class CameraStreamPanel extends React.Component {
                 a: r[0],
                 b: r[1],
                 t: t,
-                momT: moment(t).format('s')
+                momT: moment(t).format('s'),
+                time: timeArr[k],
+                timeS: moment(timeArr[k]).format('s')
             }
         })
     }
@@ -277,7 +239,7 @@ class CameraStreamPanel extends React.Component {
 
 
 
-        console.log('render: aData = ', aData);
+        // console.log('render: aData = ', aData);
 
         return (
             <div className={'camera_stream_panel'} >
@@ -310,35 +272,6 @@ class CameraStreamPanel extends React.Component {
                         }}></canvas>
                 </div>
 
-                <div className={'canvas_placeholder'} >
-                    <canvas
-                        width={width} height={height}
-                        style={{width: width, height: height}}
-                        ref={(v) => {
-                                    if (v == undefined){return;}
-                                    this.canvasRect = v;
-                                     this.rectContext = v.getContext('2d')
-                                    }}></canvas>
-                </div>
-
-                <div className={'canvas_placeholder'} >
-                    <canvas
-                        width={width} height={height}
-                        style={{width: width, height: height}}
-                        ref={(v) => {
-                                    if (v == undefined){return;}
-                                    this.canvasFace = v;
-                                    this.faceContext = v.getContext('2d')}
-                        }></canvas>
-                </div>
-
-                {/*<div>*/}
-                    {/*<button className={'ui button'} onClick={() => {this.recorder.startRecording()}} >*/}
-                        {/*start recording*/}
-                    {/*</button>*/}
-                {/*</div>*/}
-
-
 
                 <div className={'chart_placeholder'}>
                     <LineChart width={1000} height={300} data={aData}
@@ -357,7 +290,7 @@ class CameraStreamPanel extends React.Component {
                             type="monotone" dataKey="b" stroke="pink" />
                         />
 
-                        <XAxis dataKey="momT" />
+                        <XAxis dataKey="timeS" />
 
 
                     </LineChart>
@@ -366,7 +299,7 @@ class CameraStreamPanel extends React.Component {
                 <div className={'chart_placeholder'}>
                     <LineChart width={1000} height={300} data={data}
                                margin={{top: 0, right: 0, left: 0, bottom: 0}}>
-                        <XAxis dataKey="momT"/>
+                        <XAxis dataKey="timeS"/>
                         <YAxis/>
                         <Line
                             isAnimationActive={false}
